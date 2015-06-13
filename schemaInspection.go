@@ -18,9 +18,10 @@ type SchemaDescription struct {
 }
 
 type Property struct {
-	SchemaDescription
-	Type     string
-	Required bool
+	Name        string
+	Description string
+	Type        string
+	Required    bool
 }
 
 type Inspector interface {
@@ -34,9 +35,8 @@ func (s *Schema) GetResolvedProperties() []Property {
 	rtn := make([]Property, 0)
 
 	for _, prop := range s.rootSchema.propertiesChildren {
-		rtn = append(rtn, Property{
-			SchemaDescription{prop.property,
-				pointerToString(prop.description)},
+		rtn = append(rtn, Property{prop.property,
+			pointerToString(prop.description),
 			prop.types.String(),
 			s.IsRequiredProperty(prop.property)})
 	}
@@ -45,7 +45,7 @@ func (s *Schema) GetResolvedProperties() []Property {
 
 // Get Object Description
 func (s *Schema) GetObjectDescription() SchemaDescription {
-	return SchemaDescription{*s.rootSchema.title, *s.rootSchema.description}
+	return SchemaDescription{Name: *s.rootSchema.title, Description: *s.rootSchema.description}
 }
 
 // Pass in a property name and see if it is required in the schema
