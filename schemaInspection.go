@@ -12,16 +12,29 @@ import (
 )
 
 type SchemaDescription struct {
+	Id          string
 	Name        string
 	Description string
 	Properties  []Property
+	schema      *subSchema
 }
 
 type Property struct {
 	Name        string
 	Description string
 	Type        string
+	Tags        map[string]string
 	Required    bool
+	reference   *subSchema
+}
+
+type SchemaDescriber interface {
+	EmbeddedSchemaNames() []string
+}
+
+type PropertyDescriber interface {
+	IsReference() bool
+	RefSchemaName() string
 }
 
 type Inspector interface {
@@ -30,22 +43,103 @@ type Inspector interface {
 	ValidateStructIntegrity() error
 }
 
+// Schema Describer Interface
+// See if this schema references any embedded schemas; may not be needed.
+func (s SchemaDescription) HasEmbeddedSchema() bool {
+	return len(s.EmbeddedSchemaNames()) > 0
+}
+
+// Get the names of any embedded schemas. This wraps a private variadic function
+func (s SchemaDescription) EmbeddedSchemaNames() []string {
+	return extractSchemaRefs(s.schema.allOf, s.schema.anyOf, s.schema.oneOf)
+}
+
+// Private (variadic) function to actually pull the schema names
+func extractSchemaRefs(s ...[]*subSchema) []string {
+	collector := make([]string, 0)
+
+	for _, schemaCol := range s {
+		if len(schemaCol) > 1 { // if there's nothing in this collection skip it.
+			for _, item := range schemaCol {
+				if item.refSchema != nil {
+					collector = append(collector, *item.refSchema.title)
+				}
+			}
+		}
+	}
+	return collector
+}
+
+// Inspector interface
 // Resolve this document's property definition
 func (s *Schema) GetResolvedProperties() []Property {
+	var ref *subSchema
+
 	rtn := make([]Property, 0)
 
+	// Check for Root properties
 	for _, prop := range s.rootSchema.propertiesChildren {
-		rtn = append(rtn, Property{prop.property,
-			pointerToString(prop.description),
-			prop.types.String(),
-			s.IsRequiredProperty(prop.property)})
+		if prop.refSchema != nil {
+			ref = prop.refSchema
+		} else {
+			ref = nil
+		}
+
+		rtn = append(rtn, Property{
+			Name:        prop.property,
+			Description: pointerToString(prop.description),
+			Type:        prop.types.String(),
+			Required:    s.IsRequiredProperty(prop.property),
+			reference:   ref,
+		})
+	}
+
+	// Collect properties that are defined in combiners
+	rtn = append(rtn, extractSchemaProperties(s, s.rootSchema.allOf, s.rootSchema.anyOf, s.rootSchema.oneOf)...)
+	return rtn
+}
+
+func extractSchemaProperties(parent *Schema, schemas ...[]*subSchema) []Property {
+	var ref *subSchema
+	rtn := make([]Property, 0)
+
+	for _, schemaCol := range schemas {
+		if len(schemaCol) > 1 {
+			for _, item := range schemaCol {
+				for _, prop := range item.propertiesChildren {
+					if prop.refSchema != nil { // Account for references in the property
+						ref = item.refSchema
+					} else {
+						ref = nil
+					}
+
+					rtn = append(rtn, Property{
+						Name:        prop.property,
+						Description: pointerToString(prop.description),
+						Type:        prop.types.String(),
+						Required:    parent.IsRequiredProperty(prop.property),
+						reference:   ref,
+					})
+				}
+			}
+		}
 	}
 	return rtn
 }
 
 // Get Object Description
 func (s *Schema) GetObjectDescription() SchemaDescription {
-	return SchemaDescription{Name: *s.rootSchema.title, Description: *s.rootSchema.description}
+	props := s.GetResolvedProperties()
+	// fmt.Println(*s.rootSchema.id)
+	// fmt.Printf("%+v\n", s.rootSchema)
+
+	return SchemaDescription{
+		Id:          *s.rootSchema.id,
+		Name:        *s.rootSchema.title,
+		Description: *s.rootSchema.description,
+		Properties:  props,
+		schema:      s.rootSchema,
+	}
 }
 
 // Pass in a property name and see if it is required in the schema
@@ -59,29 +153,19 @@ func (s *Schema) IsRequiredProperty(propName string) bool {
 	return rtn
 }
 
-func getRecursiveProperties(s *subSchema, props *[]Property) {
-	// Base case
-	if s == nil {
-		return
+// PropertyDescriber interface
+
+func (p *Property) IsReference() bool {
+	return p.reference != nil
+}
+
+func (p *Property) RefSchemaName() string {
+	if p.reference == nil {
+		return ""
 	}
 
-	// If type is an object, iterate through child properties
-	if s.types.Contains(TYPE_OBJECT) {
-	}
-
-	// Check for items?
-	if s.types.Contains(TYPE_ARRAY) {
-	}
-
-	// if this is a schema reference, dereference this.
-	if s.refSchema != nil {
-		getRecursiveProperties(s.refSchema, props)
-	}
-
-	// Definitions should be independent structs
-	if len(s.definitions) > 0 {
-
-	}
+	// This should already be the refSchema getting passed in here.
+	return *p.reference.title
 }
 
 // Needed? needs to be finished if so...
@@ -104,10 +188,10 @@ func (s *Schema) Probe() {
 		if x.refSchema != nil {
 			for _, y := range (*x.refSchema).propertiesChildren {
 				fmt.Println(">>>CHILD<<<")
-				fmt.Println(y)
+				fmt.Printf("%+v\n", y)
 			}
 		}
-		fmt.Println(*x)
+		fmt.Printf("%+v\n", *x)
 	}
 
 }
