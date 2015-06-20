@@ -35,10 +35,12 @@ type SchemaDescriber interface {
 type PropertyDescriber interface {
 	IsReference() bool
 	RefSchemaName() string
+	GoType() string
 }
 
 type Inspector interface {
 	GetObjectDescription() SchemaDescription
+	GetObjectDefinitions() []SchemaDescription
 	GetResolvedProperties() []Property
 	ValidateStructIntegrity() error
 }
@@ -142,6 +144,16 @@ func (s *Schema) GetObjectDescription() SchemaDescription {
 	}
 }
 
+// If there are any descriptions listed in this schema, break them out
+func (s *Schema) GetObjectDefinitions() []SchemaDescription {
+	rtn := make([]SchemaDescription, 0)
+	// for _, desc := range s.rootSchema.definitions {
+	// 	// Parse definition schema
+	// }
+
+	return rtn
+}
+
 // Pass in a property name and see if it is required in the schema
 func (s *Schema) IsRequiredProperty(propName string) bool {
 	rtn := false
@@ -166,6 +178,24 @@ func (p *Property) RefSchemaName() string {
 
 	// This should already be the refSchema getting passed in here.
 	return *p.reference.title
+}
+
+func (p *Property) GoType() string {
+	// Todo schema analysis to return proper types
+	switch p.Type {
+	case "boolean":
+		return "bool"
+	case "number":
+		return "int"
+	case "integer":
+		return "int"
+	case "array":
+		return "[]string"
+	case "object":
+		return "map[string]interface{}"
+	}
+
+	return p.Type
 }
 
 // Needed? needs to be finished if so...
